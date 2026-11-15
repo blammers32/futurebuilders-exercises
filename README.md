@@ -47,8 +47,13 @@ The SPA fallback is already configured.
 
 ## Exercises are submodules
 
-`exercises/tokenization` and `exercises/prediction` are separate git repos. Each one exports an `exercise` object: levels, slides, and a React component per slide. The desk imports them from `src/lib/catalog.ts`.
+This folder, plus `../tokenization` and `../prediction`, are three git repos. The classroom pulls the two exercises in as submodules:
 
-A slide calls `onComplete({ score, detail })`. Lessons send a score of 100 when the student marks them seen. Challenges send 0 until they pass. The desk keeps the best score.
+- `exercises/tokenization`
+- `exercises/prediction`
+
+The app imports them from `src/lib/catalog.ts`. Each exercise exports an `exercise` object: levels, slides, and a React component per slide. A slide calls `onComplete({ score, detail })`. Lessons send a score of 100 when the student marks them seen. Challenges send 0 until they pass. The desk keeps the best score.
+
+Edit an exercise inside `exercises/<name>`, commit in that submodule, then commit the updated pointer in this repo. The sibling folders are the local remotes (`../tokenization`, `../prediction`). When you publish these to a host, change the URLs in `.gitmodules` to those remotes and turn on submodule cloning. Netlify only builds this folder.
 
 To add another lesson, make a repo with the same export shape, add it as a submodule under `exercises/`, and append it in `src/lib/catalog.ts`.
