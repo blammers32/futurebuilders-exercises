@@ -1,0 +1,6 @@
+[submodule "exercises/tokenization"]
+	path = exercises/tokenization
+	url = ../tokenization
+[submodule "exercises/prediction"]
+	path = exercises/prediction
+	url = ../prediction
