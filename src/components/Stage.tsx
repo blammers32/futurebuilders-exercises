@@ -1,5 +1,5 @@
-import { Component, type ReactNode, useEffect } from 'react'
-import type { Attempt, Cursor, ExerciseModule, SlideResult } from '../lib/types'
+import { Component, type ReactNode, useEffect, useState } from 'react'
+import { levelKey, levelPassed, type Attempt, type ExerciseModule, type LevelResult } from '../lib/types'
 
 class Boundary extends Component<{ children: ReactNode; resetKey: string }, { error: string | null }> {
   state = { error: null as string | null }
@@ -14,7 +14,7 @@ class Boundary extends Component<{ children: ReactNode; resetKey: string }, { er
 
   render() {
     if (this.state.error) {
-      return <p className="banner bad">This slide hit a problem. {this.state.error}</p>
+      return <p className="banner bad">This level hit a problem. {this.state.error}</p>
     }
     return this.props.children
   }
@@ -22,119 +22,82 @@ class Boundary extends Component<{ children: ReactNode; resetKey: string }, { er
 
 export function Stage({
   exercise,
-  released,
-  cursor,
-  locked,
-  allowAll,
+  review,
   attempts,
-  onNavigate,
   onScore,
+  onView,
 }: {
   exercise: ExerciseModule
-  released: string[]
-  cursor: Cursor | null
-  locked: boolean
-  allowAll: boolean
+  review: boolean
   attempts: Record<string, Attempt>
-  onNavigate: (cursor: Cursor) => void
-  onScore: (key: string, result: SlideResult, kind: 'lesson' | 'challenge') => void
+  onScore: (key: string, result: LevelResult) => void
+  onView?: (levelId: string) => void
 }) {
-  const visible = exercise.levels.filter(
-    (level) => allowAll || released.includes(level.id) || (locked && level.id === cursor?.levelId),
-  )
-  const flat = visible.flatMap((level) => level.slides.map((slide) => ({ level, slide })))
-  const found = flat.findIndex((item) => item.level.id === cursor?.levelId && item.slide.id === cursor?.slideId)
-  const index = found >= 0 ? found : 0
-  const current = flat[index]
+  const [picked, setPicked] = useState(exercise.levels[0]?.id ?? '')
+  const open = (index: number) => review || exercise.levels.slice(0, index).every((level) => levelPassed(attempts, exercise.id, level.id))
+  const current = exercise.levels.find((level) => level.id === picked && open(exercise.levels.indexOf(level))) ?? exercise.levels.find((_, index) => open(index))
+  if (!current) return null
+  const index = exercise.levels.indexOf(current)
+  const key = levelKey(exercise.id, current.id)
+  const done = levelPassed(attempts, exercise.id, current.id)
+  const next = exercise.levels[index + 1]
 
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return
-      if (event.key === 'ArrowRight') move(1)
-      if (event.key === 'ArrowLeft') move(-1)
-    }
-    const move = (delta: number) => {
-      if (locked) return
-      const next = flat[index + delta]
-      if (!next) return
-      onNavigate({ levelId: next.level.id, slideId: next.slide.id })
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [flat, index, locked, onNavigate])
-
-  if (!current) {
-    return (
-      <section className="hold slim">
-        <p className="kicker">Waiting</p>
-        <h1>No levels are open.</h1>
-        <p>Publish the exercise, then open the levels you want this class to touch.</p>
-      </section>
-    )
-  }
-
-  const key = `${exercise.id}__${current.level.id}__${current.slide.id}`
-  const attempt = attempts[key]
-  const done = attempt?.status === 'completed' && attempt.score > 0
+    onView?.(current.id)
+  }, [current.id, onView])
 
   return (
     <div className="stage">
-      <nav className="levels" aria-label="Levels">
-        {exercise.levels.map((level) => {
-          const open = allowAll || released.includes(level.id)
-          const slidesDone = level.slides.filter((slide) => {
-            const item = attempts[`${exercise.id}__${level.id}__${slide.id}`]
-            return slide.kind === 'challenge' && item?.status === 'completed' && item.score > 0
-          }).length
-          const slidesTotal = level.slides.filter((slide) => slide.kind === 'challenge').length
-          return (
-            <button
-              key={level.id}
-              type="button"
-              className={level.id === current.level.id ? 'level on' : 'level'}
-              disabled={!open || locked}
-              onClick={() => onNavigate({ levelId: level.id, slideId: level.slides[0].id })}
-            >
-              <strong>{level.title}</strong>
-              <span>{open ? level.blurb : 'Closed'}</span>
-              {slidesTotal > 0 && <em>{slidesDone}/{slidesTotal}</em>}
-            </button>
-          )
-        })}
-      </nav>
-      <section className="slide" aria-live="polite">
-        <header className="slide-head">
-          <p className="kicker">
-            {current.slide.kind === 'challenge' ? 'Challenge' : 'Lesson'} · {current.level.title}
-            {done && current.slide.kind === 'challenge' ? ` · ${attempt?.score ?? 0}` : ''}
-          </p>
-          <h2>{current.slide.title}</h2>
-        </header>
-        <Boundary resetKey={key}>
-          <current.slide.Component
-            completed={Boolean(done)}
-            onComplete={(result) => onScore(key, result, current.slide.kind)}
-          />
-        </Boundary>
-        <footer className="slide-nav">
-          <button type="button" disabled={locked || index <= 0} onClick={() => {
-            const next = flat[index - 1]
-            onNavigate({ levelId: next.level.id, slideId: next.slide.id })
-          }}>
-            Back
-          </button>
-          <span>
-            {locked ? 'Following your instructor' : 'Arrow keys move'} · {index + 1} / {flat.length}
-          </span>
-          <button type="button" disabled={locked || index >= flat.length - 1} onClick={() => {
-            const next = flat[index + 1]
-            onNavigate({ levelId: next.level.id, slideId: next.slide.id })
-          }}>
-            Next
-          </button>
-        </footer>
-      </section>
+      <div className="play-card">
+        <nav className="level-tabs" aria-label="Levels">
+          {exercise.levels.map((level, levelIndex) => {
+            const unlocked = open(levelIndex)
+            const passed = levelPassed(attempts, exercise.id, level.id)
+            const on = level.id === current.id
+            return (
+              <button
+                key={level.id}
+                type="button"
+                className={`level-tab tone-${levelIndex} ${on ? 'on' : ''} ${passed ? 'done' : ''}`}
+                disabled={!unlocked}
+                onClick={() => setPicked(level.id)}
+              >
+                <small>Level {levelIndex + 1}</small>
+                <strong>{['Exercise', 'Challenge', 'Extra time'][levelIndex] ?? level.title}</strong>
+              </button>
+            )
+          })}
+        </nav>
+        <section className="slide" aria-live="polite">
+          <header className="how">
+            <h2>{current.title}</h2>
+            <p className="mission">🎯 {current.blurb}</p>
+            {current.steps && current.steps.length > 0 && (
+              <ol className="how-steps">
+                {current.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            )}
+          </header>
+          <Boundary resetKey={key}>
+            <current.Component completed={done} onComplete={(result) => onScore(key, result)} />
+          </Boundary>
+          {done && (
+            <div className="level-win">
+              <p>
+                <b>🎉 Level {index + 1} complete!</b>
+                {!next && <span> You finished every level.</span>}
+              </p>
+              {next && (
+                <button type="button" className="primary" onClick={() => setPicked(next.id)}>
+                  Level {index + 2} →
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   )
 }

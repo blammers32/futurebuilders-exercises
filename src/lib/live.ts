@@ -28,10 +28,12 @@ function controlFrom(raw: Record<string, unknown> | undefined, code: string): Om
     title: String(raw.title ?? 'FutureBuilders'),
     instructorName: String(raw.instructorName ?? 'Instructor'),
     published: Boolean(raw.published),
+    review: Boolean(raw.review),
+    reviewIds: parseReleased(raw.reviewIds),
     follow: Boolean(raw.follow),
     exerciseId: String(raw.exerciseId ?? ''),
     released: parseReleased(raw.released),
-    cursor: cursor && typeof cursor.levelId === 'string' && typeof cursor.slideId === 'string' ? cursor : null,
+    cursor: cursor && typeof cursor.levelId === 'string' ? { levelId: cursor.levelId } : null,
     note: String(raw.note ?? ''),
     updatedAt: Number(raw.updatedAt ?? 0),
   }
@@ -96,6 +98,8 @@ export function liveSync(config: FirebaseOptions) {
           title: room.title,
           instructorName: room.instructorName,
           published: room.published,
+          review: room.review,
+          reviewIds: room.reviewIds.join(','),
           follow: room.follow,
           exerciseId: room.exerciseId,
           released: room.released.join(','),
@@ -116,6 +120,8 @@ export function liveSync(config: FirebaseOptions) {
       if (patch.title !== undefined) next.title = patch.title
       if (patch.instructorName !== undefined) next.instructorName = patch.instructorName
       if (patch.published !== undefined) next.published = patch.published
+      if (patch.review !== undefined) next.review = patch.review
+      if (patch.reviewIds !== undefined) next.reviewIds = patch.reviewIds.join(',')
       if (patch.follow !== undefined) next.follow = patch.follow
       if (patch.exerciseId !== undefined) next.exerciseId = patch.exerciseId
       if (patch.note !== undefined) next.note = patch.note

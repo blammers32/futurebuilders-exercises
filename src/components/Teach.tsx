@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { exercises } from '../lib/catalog'
 import { createDemoDesk, demoRooms, enterDemoDesk, leaveDemoDesk, rememberDemoRoom } from '../lib/desk'
-import { findSlide, makeCode, tally, type ControlPatch, type Room } from '../lib/types'
+import { exercisesInReview, findLevel, makeCode, tally, type ControlPatch, type Room } from '../lib/types'
 import { firebaseConfig, getSync, syncMode } from '../lib/sync'
 import { useInstructor } from '../lib/useInstructor'
 import { useRoom } from '../lib/useRoom'
@@ -74,10 +74,12 @@ function DeskHome() {
       title: title.trim() || 'FutureBuilders lab',
       instructorName: instructor.name,
       published: false,
+      review: false,
+      reviewIds: [],
       follow: false,
       exerciseId: exercise.id,
       released: [],
-      cursor: { levelId: exercise.levels[0].id, slideId: exercise.levels[0].slides[0].id },
+      cursor: { levelId: exercise.levels[0].id },
       note: '',
       roster: {},
       progress: {},
@@ -208,14 +210,9 @@ function Desk({ code }: { code: string }) {
   const instructor = useInstructor()
   const room = useRoom(code, instructor.status === 'in' ? { role: 'instructor' } : null)
   const [error, setError] = useState('')
-  const [note, setNote] = useState('')
   const [copied, setCopied] = useState(false)
   const [now, setNow] = useState(Date.now())
   const exercise = exercises.find((item) => item.id === room?.exerciseId) ?? exercises[0]
-
-  useEffect(() => {
-    if (room) setNote(room.note)
-  }, [room?.note])
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 5000)
@@ -282,7 +279,7 @@ function Desk({ code }: { code: string }) {
   }
 
   const students = Object.values(room.roster).sort((a, b) => b.lastSeen - a.lastSeen)
-  const where = findSlide(exercise, room.cursor)
+  const openIds = exercisesInReview(room, exercises.map((item) => item.id))
 
   return (
     <div className="app">
@@ -300,108 +297,61 @@ function Desk({ code }: { code: string }) {
             </button>
           </div>
           <p className="quiet">Students open the join link, or type this code.</p>
-          <div className="publish-row">
-            <button
-              type="button"
-              className={room.published ? 'primary hot' : 'primary'}
-              onClick={() => void save({ published: !room.published })}
-            >
-              {room.published ? 'Unpublish' : 'Publish'}
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                void save({
-                  published: true,
-                  follow: false,
-                  released: exercise.levels.map((level) => level.id),
-                  note: 'Review is open. Walk back through anything you want to keep.',
-                })
-              }
-            >
-              Open for review
-            </button>
-          </div>
+          <ul className="exercise-desk">
+            {exercises.map((item) => {
+              const classOn = room.published && !room.review && room.exerciseId === item.id
+              const reviewOn = openIds.includes(item.id)
+              return (
+                <li key={item.id}>
+                  <strong>{item.title}</strong>
+                  <div className="publish-row">
+                    <button
+                      type="button"
+                      className={classOn ? 'primary hot' : 'primary'}
+                      onClick={() =>
+                        void save(
+                          classOn
+                            ? { published: false, review: false, reviewIds: [] }
+                            : {
+                                published: true,
+                                review: false,
+                                reviewIds: [],
+                                exerciseId: item.id,
+                                cursor: { levelId: item.levels[0].id },
+                              },
+                        )
+                      }
+                    >
+                      {classOn ? 'Unpublish' : 'Publish'}
+                    </button>
+                    <button
+                      type="button"
+                      className={reviewOn ? 'primary hot' : ''}
+                      onClick={() => {
+                        const next = reviewOn ? openIds.filter((id) => id !== item.id) : [...openIds, item.id]
+                        void save({
+                          reviewIds: next,
+                          review: next.length > 0,
+                          published: next.length > 0,
+                          exerciseId: item.id,
+                          cursor: { levelId: item.levels[0].id },
+                        })
+                      }}
+                    >
+                      {reviewOn ? 'Close review' : 'Open for review'}
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
           <p className="quiet">
-            {room.published
-              ? 'Students can work the open levels.'
-              : 'You have the room. Their screens are holding, and their progress stays put.'}
+            {openIds.length
+              ? `Review is open for ${openIds.map((id) => exercises.find((item) => item.id === id)?.title ?? id).join(', ')}.`
+              : room.published
+                ? `${exercise.title} is published. Students unlock the next level by clearing the goal.`
+                : 'You have the room. Their screens are holding, and their progress stays put.'}
           </p>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={room.follow}
-              onChange={(event) => void save({ follow: event.target.checked })}
-            />
-            Drive their screens from Present
-          </label>
-          <label>
-            Exercise
-            <select
-              value={exercise.id}
-              onChange={(event) => {
-                const next = exercises.find((item) => item.id === event.target.value)
-                if (!next) return
-                void save({
-                  exerciseId: next.id,
-                  released: [],
-                  published: false,
-                  cursor: { levelId: next.levels[0].id, slideId: next.levels[0].slides[0].id },
-                })
-              }}
-            >
-              {exercises.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <fieldset>
-            <legend>Open levels</legend>
-            <div className="level-picks">
-              {exercise.levels.map((level) => {
-                const on = room.released.includes(level.id)
-                return (
-                  <button
-                    key={level.id}
-                    type="button"
-                    className={on ? 'pick on' : 'pick'}
-                    onClick={() => {
-                      const released = on ? room.released.filter((id) => id !== level.id) : [...room.released, level.id]
-                      void save({ released })
-                    }}
-                  >
-                    {level.title}
-                  </button>
-                )
-              })}
-            </div>
-          </fieldset>
-          <label>
-            Note on their screen
-            <input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              onBlur={() => {
-                if (note !== room.note) void save({ note })
-              }}
-              maxLength={180}
-              placeholder="Eyes up for a minute."
-            />
-          </label>
-          <div className="where">
-            <span>Presenting</span>
-            <strong>{where ? where.slide.title : 'First slide'}</strong>
-            <div className="row">
-              <button type="button" onClick={() => void step(exercise, room, -1, save)}>
-                Previous slide
-              </button>
-              <button type="button" onClick={() => void step(exercise, room, 1, save)}>
-                Next slide
-              </button>
-            </div>
-          </div>
           {error && <p className="banner bad">{error}</p>}
         </section>
         <section className="roster-wrap">
@@ -417,19 +367,20 @@ function Desk({ code }: { code: string }) {
                 <tr>
                   <th>Student</th>
                   <th>Where</th>
-                  <th>Challenges</th>
+                  <th>Levels</th>
                   <th>Seen</th>
                 </tr>
               </thead>
               <tbody>
                 {students.map((student) => {
-                  const spot = findSlide(exercise, student.levelId && student.slideId ? { levelId: student.levelId, slideId: student.slideId } : null)
-                  const score = tally(exercise, room.progress[student.id])
+                  const theirs = exercises.find((item) => item.id === student.exerciseId) ?? exercise
+                  const spot = findLevel(theirs, student.levelId)
+                  const score = tally(theirs, room.progress[student.id])
                   const away = now - student.lastSeen > 30000
                   return (
                     <tr key={student.id} className={away ? 'away' : ''}>
                       <td>{student.name}</td>
-                      <td>{spot ? spot.slide.title : '—'}</td>
+                      <td>{spot ? `${theirs === exercise ? '' : `${theirs.title} · `}${spot.title}` : '—'}</td>
                       <td>
                         {score.done}/{score.total}
                       </td>
@@ -444,14 +395,6 @@ function Desk({ code }: { code: string }) {
       </main>
     </div>
   )
-}
-
-function step(exercise: (typeof exercises)[number], room: Room, delta: number, save: (patch: ControlPatch) => Promise<void>) {
-  const flat = exercise.levels.flatMap((level) => level.slides.map((slide) => ({ level, slide })))
-  const index = flat.findIndex((item) => item.level.id === room.cursor?.levelId && item.slide.id === room.cursor?.slideId)
-  const next = flat[Math.min(flat.length - 1, Math.max(0, (index < 0 ? 0 : index) + delta))]
-  if (!next) return
-  return save({ cursor: { levelId: next.level.id, slideId: next.slide.id } })
 }
 
 function ago(time: number, now: number) {

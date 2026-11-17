@@ -1,24 +1,18 @@
 import type { ComponentType } from 'react'
 
-export type SlideResult = { score: number; detail?: string }
+export type LevelResult = { score: number; detail?: string }
 
-export type SlideProps = {
-  onComplete: (result: SlideResult) => void
+export type LevelProps = {
+  onComplete: (result: LevelResult) => void
   completed: boolean
-}
-
-export type SlideDef = {
-  id: string
-  title: string
-  kind: 'lesson' | 'challenge'
-  Component: ComponentType<SlideProps>
 }
 
 export type LevelDef = {
   id: string
   title: string
   blurb: string
-  slides: SlideDef[]
+  steps?: string[]
+  Component: ComponentType<LevelProps>
 }
 
 export type ExerciseModule = {
@@ -30,13 +24,14 @@ export type ExerciseModule = {
   levels: LevelDef[]
 }
 
-export type Cursor = { levelId: string; slideId: string }
+export type Cursor = { levelId: string }
 
 export type Student = {
   id: string
   name: string
   lastSeen: number
   levelId?: string
+  exerciseId?: string
   slideId?: string
 }
 
@@ -52,6 +47,8 @@ export type Room = {
   title: string
   instructorName: string
   published: boolean
+  review: boolean
+  reviewIds: string[]
   follow: boolean
   exerciseId: string
   released: string[]
@@ -63,13 +60,19 @@ export type Room = {
 }
 
 export type ControlPatch = Partial<
-  Pick<Room, 'title' | 'instructorName' | 'published' | 'follow' | 'exerciseId' | 'released' | 'cursor' | 'note'>
+  Pick<Room, 'title' | 'instructorName' | 'published' | 'review' | 'reviewIds' | 'follow' | 'exerciseId' | 'released' | 'cursor' | 'note'>
 >
 
 export type Viewer = { role: 'instructor' } | { role: 'student'; id: string }
 
-export function slideKey(exerciseId: string, levelId: string, slideId: string) {
-  return `${exerciseId}__${levelId}__${slideId}`
+export function levelKey(exerciseId: string, levelId: string) {
+  return `${exerciseId}__${levelId}`
+}
+
+export function exercisesInReview(room: Pick<Room, 'review' | 'reviewIds'>, allIds: string[]) {
+  const listed = room.reviewIds.filter((id) => allIds.includes(id))
+  if (listed.length > 0) return listed
+  return room.review ? allIds : []
 }
 
 export function parseReleased(value: unknown): string[] {
@@ -92,16 +95,8 @@ export function mergeAttempt(previous: Attempt | undefined, next: Attempt): Atte
   return next
 }
 
-export function challengeKeys(exercise: ExerciseModule) {
-  return exercise.levels.flatMap((level) =>
-    level.slides
-      .filter((slide) => slide.kind === 'challenge')
-      .map((slide) => slideKey(exercise.id, level.id, slide.id)),
-  )
-}
-
 export function tally(exercise: ExerciseModule, attempts: Record<string, Attempt> | undefined) {
-  const keys = challengeKeys(exercise)
+  const keys = exercise.levels.map((level) => levelKey(exercise.id, level.id))
   const done = keys.filter((key) => {
     const attempt = attempts?.[key]
     return attempt?.status === 'completed' && attempt.score > 0
@@ -109,10 +104,12 @@ export function tally(exercise: ExerciseModule, attempts: Record<string, Attempt
   return { done, total: keys.length }
 }
 
-export function findSlide(exercise: ExerciseModule, cursor: Cursor | null) {
-  if (!cursor) return null
-  const level = exercise.levels.find((item) => item.id === cursor.levelId)
-  const slide = level?.slides.find((item) => item.id === cursor.slideId)
-  if (!level || !slide) return null
-  return { level, slide }
+export function findLevel(exercise: ExerciseModule, levelId: string | null | undefined) {
+  if (!levelId) return null
+  return exercise.levels.find((item) => item.id === levelId) ?? null
+}
+
+export function levelPassed(attempts: Record<string, Attempt> | undefined, exerciseId: string, levelId: string) {
+  const attempt = attempts?.[levelKey(exerciseId, levelId)]
+  return Boolean(attempt && attempt.status === 'completed' && attempt.score > 0)
 }

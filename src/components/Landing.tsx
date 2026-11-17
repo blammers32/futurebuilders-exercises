@@ -11,12 +11,12 @@ export function Landing() {
         <span className={mode === 'live' ? 'badge live' : 'badge'}>{mode === 'live' ? 'Firebase connected' : 'Demo sync'}</span>
       </Topbar>
       <main className="landing">
-        <p className="kicker">MIT RAISE FutureBuilders</p>
+        <p className="kicker">MIT FutureBuilders, Interactive Exercises</p>
         <h1>Hand the work to the class. Take the room back when you need it.</h1>
         <p className="lede">
           An instructor desk with a sign-in, a class code, and a live picture of every student. Publish an exercise
           when they should work. Unpublish when you want their eyes up front. Publish it again at the end so they can
-          walk the slides and challenges on their own.
+          walk the levels again on their own.
         </p>
         <div className="doors">
           <Link className="door" to="/teach">

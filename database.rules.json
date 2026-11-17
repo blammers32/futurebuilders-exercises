@@ -10,16 +10,16 @@
         "roster": {
           ".read": "auth != null && root.child('rooms').child($code).child('owner').val() === auth.uid",
           "$sid": {
-            ".write": true,
-            ".validate": "newData.child('id').val() === $sid && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 40"
+            ".write": "root.child('rooms').child($code).child('owner').exists()",
+            ".validate": "newData.child('id').val() === $sid && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 40 && newData.child('lastSeen').isNumber()"
           }
         },
         "progress": {
           ".read": "auth != null && root.child('rooms').child($code).child('owner').val() === auth.uid",
           "$sid": {
+            ".read": true,
             "$key": {
-              ".read": true,
-              ".write": true,
+              ".write": "root.child('rooms').child($code).child('owner').exists()",
               ".validate": "newData.hasChildren(['status', 'score', 'updatedAt']) && newData.child('status').val().matches(/^(viewed|completed)$/) && newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('score').val() <= 100 && newData.child('updatedAt').isNumber() && (!newData.child('detail').exists() || (newData.child('detail').isString() && newData.child('detail').val().length <= 400))"
             }
           }

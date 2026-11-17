@@ -20,6 +20,8 @@ function readRoom(code: string): Room | null {
   try {
     const room = JSON.parse(raw) as Room
     room.released = parseReleased(room.released)
+    room.review = Boolean(room.review)
+    room.reviewIds = parseReleased(room.reviewIds)
     room.roster ??= {}
     room.progress ??= {}
     return room

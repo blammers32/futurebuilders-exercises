@@ -2,7 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { exercises } from '../lib/catalog'
 import { getSync } from '../lib/sync'
 import { useInstructor } from '../lib/useInstructor'
-import type { ControlPatch, Cursor } from '../lib/types'
+import type { ControlPatch } from '../lib/types'
 import { useRoom } from '../lib/useRoom'
 import { Stage } from './Stage'
 
@@ -50,23 +50,27 @@ export function Present() {
         <Link to={`/teach/${code}`}>Desk</Link>
         <strong>{room.title}</strong>
         <span className="mono">{room.code}</span>
-        <button type="button" className={room.published ? 'primary hot' : 'primary'} onClick={() => void save({ published: !room.published })}>
+        <button
+          type="button"
+          className={room.published ? 'primary hot' : 'primary'}
+          onClick={() =>
+            void save(
+              room.published
+                ? { published: false, review: false, reviewIds: [] }
+                : {
+                    published: true,
+                    review: false,
+                    reviewIds: [],
+                    exerciseId: exercise.id,
+                    cursor: { levelId: exercise.levels[0].id },
+                  },
+            )
+          }
+        >
           {room.published ? 'Unpublish' : 'Publish'}
         </button>
-        <button type="button" className={room.follow ? 'pick on' : 'pick'} onClick={() => void save({ follow: !room.follow })}>
-          {room.follow ? 'Driving screens' : 'Let them roam'}
-        </button>
       </header>
-      <Stage
-        exercise={exercise}
-        released={room.released}
-        cursor={room.cursor}
-        locked={false}
-        allowAll
-        attempts={{}}
-        onNavigate={(cursor: Cursor) => void save({ cursor })}
-        onScore={() => {}}
-      />
+      <Stage exercise={exercise} review attempts={{}} onScore={() => {}} />
     </div>
   )
 }

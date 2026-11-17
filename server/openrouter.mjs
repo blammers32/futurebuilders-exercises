@@ -44,6 +44,31 @@ export const MODELS = [
 ]
 
 const ALLOWED = new Set(MODELS.map((model) => model.id))
+const EMBED_MODEL = 'openai/text-embedding-3-small'
+
+let priceCache = null
+let priceAt = 0
+
+async function modelPrices(apiKey) {
+  if (priceCache && Date.now() - priceAt < 10 * 60 * 1000) return priceCache
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+    })
+    const json = await response.json()
+    const map = {}
+    for (const model of json.data ?? []) {
+      const prompt = Number(model.pricing?.prompt)
+      const completion = Number(model.pricing?.completion)
+      if (Number.isFinite(prompt) && Number.isFinite(completion)) map[model.id] = { prompt, completion }
+    }
+    priceCache = map
+    priceAt = Date.now()
+  } catch {
+    priceCache = priceCache ?? {}
+  }
+  return priceCache
+}
 
 function clamp(value, min, max) {
   const number = Number(value)
@@ -90,7 +115,13 @@ async function callUpstream(apiKey, payload) {
 
 export async function handleOpenRouter(request, apiKey) {
   if (request.method === 'GET') {
-    return { status: 200, body: { configured: Boolean(apiKey), models: MODELS } }
+    const prices = await modelPrices(apiKey)
+    const models = MODELS.map((model) => ({
+      ...model,
+      promptPrice: prices[model.id]?.prompt ?? null,
+      completionPrice: prices[model.id]?.completion ?? null,
+    }))
+    return { status: 200, body: { configured: Boolean(apiKey), models } }
   }
   if (request.method !== 'POST') {
     return { status: 405, body: { error: 'Use POST.' } }
@@ -104,6 +135,7 @@ export async function handleOpenRouter(request, apiKey) {
       },
     }
   }
+  if (request.task === 'embed') return embedWords(request, apiKey)
 
   let messages
   try {
@@ -116,7 +148,7 @@ export async function handleOpenRouter(request, apiKey) {
     return { status: 400, body: { error: 'That model is not enabled for this classroom.' } }
   }
 
-  const maxTokens = clamp(request.maxTokens, 1, 400)
+  const maxTokens = clamp(request.maxTokens, 1, 1200)
   const temperature = Math.max(0, Math.min(1, Number(request.temperature ?? 0) || 0))
   const payload = {
     model: request.model,
@@ -128,6 +160,7 @@ export async function handleOpenRouter(request, apiKey) {
     payload.logprobs = true
     payload.top_logprobs = clamp(request.topLogprobs ?? 8, 1, 10)
   }
+  if (request.reasoning === true) payload.reasoning = { effort: 'low' }
 
   let lifted = false
   let result = await callUpstream(apiKey, payload)
@@ -148,6 +181,7 @@ export async function handleOpenRouter(request, apiKey) {
 
   const choice = result.json?.choices?.[0]
   const text = choice?.message?.content ?? ''
+  const thinking = typeof choice?.message?.reasoning === 'string' ? choice.message.reasoning : ''
   const rows = choice?.logprobs?.content
   let logprobs = null
   let firstToken = null
@@ -161,18 +195,55 @@ export async function handleOpenRouter(request, apiKey) {
   }
 
   const usage = result.json?.usage ?? {}
+  const details = usage.completion_tokens_details ?? {}
+  const reasoning = typeof details.reasoning_tokens === 'number' ? details.reasoning_tokens : null
   return {
     status: 200,
     body: {
       text,
+      thinking,
       firstToken,
       lifted,
       model: request.model,
       usage: {
         prompt: usage.prompt_tokens ?? null,
         completion: usage.completion_tokens ?? null,
+        reasoning,
       },
+      cost: typeof usage.cost === 'number' ? usage.cost : null,
       logprobs,
     },
+  }
+}
+
+async function embedWords(request, apiKey) {
+  if (!Array.isArray(request.input) || request.input.length < 1 || request.input.length > 48) {
+    return { status: 400, body: { error: 'Send 1 to 48 words.' } }
+  }
+  const input = request.input.map((item) => (typeof item === 'string' ? item.trim().slice(0, 80) : ''))
+  if (input.some((item) => item.length === 0)) {
+    return { status: 400, body: { error: 'Every word needs text.' } }
+  }
+  const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://raise.mit.edu/engage-with-us/k-12/mit-futurebuilders/',
+      'X-Title': 'MIT RAISE FutureBuilders',
+    },
+    body: JSON.stringify({ model: EMBED_MODEL, input }),
+  })
+  const json = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    return { status: response.status || 502, body: { error: json?.error?.message || 'Embeddings failed.' } }
+  }
+  const vectors = (json.data ?? []).map((row) => row.embedding).filter((row) => Array.isArray(row))
+  if (vectors.length !== input.length) {
+    return { status: 502, body: { error: 'The embedding response was incomplete.' } }
+  }
+  return {
+    status: 200,
+    body: { vectors, cost: typeof json.usage?.cost === 'number' ? json.usage.cost : null },
   }
 }

@@ -18,8 +18,8 @@ export function Topbar({ children }: { children?: ReactNode }) {
       <Link className="brand" to="/">
         <Mark />
         <span>
-          <strong>FutureBuilders</strong>
-          <small>MIT RAISE classroom</small>
+          <strong>MIT FutureBuilders</strong>
+          <small>Interactive Exercises</small>
         </span>
       </Link>
       <div className="top-actions">{children}</div>

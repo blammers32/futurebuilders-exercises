@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { exercises } from '../lib/catalog'
 import { getSync } from '../lib/sync'
-import type { Cursor, SlideResult } from '../lib/types'
+import { exercisesInReview, type LevelResult } from '../lib/types'
 import { useRoom } from '../lib/useRoom'
 import { Stage } from './Stage'
 import { Topbar } from './Chrome'
@@ -12,27 +12,23 @@ export function StudentRoom() {
   const { code = '' } = useParams()
   const who = loadWho()
   const room = useRoom(code, who ? { role: 'student', id: who.id } : null)
-  const [localCursor, setLocalCursor] = useState<Cursor | null>(null)
-  const followRef = useRef(false)
-  const exercise = exercises.find((item) => item.id === room?.exerciseId) ?? null
-
-  useEffect(() => {
-    if (!room) return
-    if (followRef.current && !room.follow) setLocalCursor(room.cursor)
-    followRef.current = room.follow
-  }, [room?.follow, room?.cursor, room])
+  const [levelId, setLevelId] = useState<string | null>(null)
+  const [pickedId, setPickedId] = useState<string | null>(null)
+  const openIds = room ? exercisesInReview(room, exercises.map((item) => item.id)) : []
+  const shownId = openIds.includes(pickedId ?? '') ? pickedId : openIds[0] ?? room?.exerciseId
+  const exercise = exercises.find((item) => item.id === shownId) ?? null
 
   useEffect(() => {
     if (!room || !who || !exercise) return
-    const cursor = room.follow ? room.cursor : localCursor ?? room.cursor
+    const spot = levelId
     const syncing = window.setInterval(() => {
       void getSync().then((sync) =>
         sync.touchStudent(code, {
           id: who.id,
           name: who.name,
           lastSeen: Date.now(),
-          levelId: cursor?.levelId,
-          slideId: cursor?.slideId,
+          levelId: spot ?? undefined,
+          exerciseId: exercise.id,
         }),
       )
     }, 8000)
@@ -41,12 +37,12 @@ export function StudentRoom() {
         id: who.id,
         name: who.name,
         lastSeen: Date.now(),
-        levelId: cursor?.levelId,
-        slideId: cursor?.slideId,
+        levelId: spot ?? undefined,
+        exerciseId: exercise.id,
       }),
     )
     return () => window.clearInterval(syncing)
-  }, [code, who?.id, who?.name, room?.follow, room?.cursor?.levelId, room?.cursor?.slideId, localCursor?.levelId, localCursor?.slideId, exercise?.id])
+  }, [code, who?.id, who?.name, levelId, exercise?.id, room?.code])
 
   if (!who) {
     return (
@@ -80,19 +76,12 @@ export function StudentRoom() {
     )
   }
 
-  const cursor = room.follow ? room.cursor : localCursor ?? room.cursor
   const attempts = room.progress[who.id] ?? {}
 
-  function navigate(next: Cursor) {
-    if (room && room.follow) return
-    setLocalCursor(next)
-  }
-
-  function onScore(key: string, result: SlideResult, kind: 'lesson' | 'challenge') {
-    const passed = kind === 'lesson' || result.score > 0
+  function onScore(key: string, result: LevelResult) {
     void getSync().then((sync) =>
       sync.report(code, who!.id, key, {
-        status: passed ? 'completed' : 'viewed',
+        status: result.score > 0 ? 'completed' : 'viewed',
         score: result.score,
         detail: result.detail,
         updatedAt: Date.now(),
@@ -110,22 +99,36 @@ export function StudentRoom() {
         <section className="hold">
           <p className="kicker">Pencils down</p>
           <h1>Your instructor has the room.</h1>
-          <p>{room.note || 'Eyes up front. This screen will open the exercise when it is published.'}</p>
+          <p>Eyes up front. This screen will open the exercise when it is published.</p>
           <p className="quiet">
             {room.title} · {room.instructorName}
           </p>
         </section>
       ) : (
         <>
-          {room.note && <p className="banner">{room.note}</p>}
+          {openIds.length > 1 && (
+            <nav className="exercise-switch" aria-label="Exercises">
+              {exercises.filter((item) => openIds.includes(item.id)).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={item.id === exercise.id ? 'on' : ''}
+                  onClick={() => {
+                    setPickedId(item.id)
+                    setLevelId(item.levels[0]?.id ?? null)
+                  }}
+                >
+                  {item.title}
+                </button>
+              ))}
+            </nav>
+          )}
           <Stage
+            key={exercise.id}
             exercise={exercise}
-            released={room.released}
-            cursor={cursor}
-            locked={room.follow}
-            allowAll={false}
+            review={openIds.length > 0}
             attempts={attempts}
-            onNavigate={navigate}
+            onView={setLevelId}
             onScore={onScore}
           />
         </>

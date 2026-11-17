@@ -38,10 +38,28 @@ function openRouterPlugin(apiKey: string | undefined): Plugin {
   }
 }
 
+function siteIndex(): Plugin {
+  return {
+    name: 'site-index',
+    enforce: 'post',
+    generateBundle(_, bundle) {
+      const page = bundle['site.html']
+      if (!page || page.type !== 'asset') return
+      delete bundle['site.html']
+      this.emitFile({ type: 'asset', fileName: 'index.html', source: page.source })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
+  const site = mode === 'site'
   return {
-    plugins: [react(), openRouterPlugin(env.OPENROUTER_API_KEY)],
+    plugins: [react(), openRouterPlugin(env.OPENROUTER_API_KEY), ...(site ? [siteIndex()] : [])],
     server: { port: 5173 },
+    ...(site && {
+      base: './',
+      build: { outDir: 'dist-site', rollupOptions: { input: 'site.html' } },
+    }),
   }
 })
